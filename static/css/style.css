@@ -395,9 +395,33 @@ input[type="password"]:focus {
     filter: brightness(110%);
 }
 
+.btn:disabled,
+.btn.is-disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn.is-loading {
+    min-width: 160px;
+}
+
 .action-buttons {
     display: flex;
     gap: 1rem;
+}
+
+.loading-state {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+#explain-result-container[aria-busy="true"],
+#image-result[aria-busy="true"] {
+    position: relative;
 }
 
 /* --- UTILS --- */
@@ -452,6 +476,11 @@ input[type="password"]:focus {
     margin-top: 1rem;
 }
 
+#explain-result-container,
+#image-result {
+    min-height: 72px;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
@@ -489,4 +518,84 @@ tr:hover td {
     background: #fffbeb;
     border-color: #fde68a;
     color: #92400e;
+}
+
+/* --- RESPONSIVE --- */
+@media (max-width: 1024px) {
+    .app-container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 1rem;
+    }
+
+    .nav-menu {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .nav-item {
+        flex: 1 1 calc(50% - 0.5rem);
+    }
+
+    .sidebar-footer {
+        margin-top: 1rem;
+    }
+
+    .main-content {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 640px) {
+    body {
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
+    }
+
+    .logo {
+        font-size: 1.25rem;
+    }
+
+    .user-info {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .nav-item {
+        flex: 1 1 100%;
+    }
+
+    .card {
+        padding: 1.25rem;
+    }
+
+    .action-buttons,
+    .symptom-input-wrapper,
+    .dual-action-grid,
+    .report-lang-grid {
+        display: flex !important;
+        flex-direction: column;
+    }
+
+    .action-buttons .btn,
+    .symptom-input-wrapper input,
+    .symptom-input-wrapper .icon-btn,
+    .dual-action-grid .btn,
+    .report-lang-grid .btn {
+        width: 100%;
+    }
+
+    .suggestions-list {
+        width: 100%;
+    }
+
+    .section-header h1 {
+        font-size: 1.5rem;
+    }
 }

@@ -1,9 +1,15 @@
+import os
 from pymongo import MongoClient
 import datetime
 from werkzeug.security import generate_password_hash
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Connect to MongoDB Atlas with timeout
-MONGO_URI = "mongodb+srv://bsoni3416_db_user:WDF6ojQxs7wQXTfy@healthcaredatabase.fjjaxjr.mongodb.net/?appName=HealthcareDataBase"
+MONGO_URI = os.getenv("MONGO_URI")
+if not MONGO_URI:
+    raise ValueError("MONGO_URI is not set")
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = client["healthcare_db"]
 

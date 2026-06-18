@@ -160,17 +160,17 @@
                         </div>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
-                        <button class="btn btn-outline"
+                    <div class="dual-action-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                        <button id="explain-en-btn" class="btn btn-outline"
                             style="height: auto; padding: 1.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem;"
-                            onclick="explainDisease('English')">
+                            onclick="explainDisease('English', 'explain-en-btn')">
                             <span style="font-size: 2rem;">🇬🇧</span>
                             <span style="font-weight: 600;">English</span>
                             <span style="font-size: 0.8rem; color: var(--text-muted);">Simple explanation</span>
                         </button>
-                        <button class="btn btn-outline"
+                        <button id="explain-gu-btn" class="btn btn-outline"
                             style="height: auto; padding: 1.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem;"
-                            onclick="explainDisease('Gujarati')">
+                            onclick="explainDisease('Gujarati', 'explain-gu-btn')">
                             <span style="font-size: 2rem;">🇮🇳</span>
                             <span style="font-weight: 600;">Gujarati</span>
                             <span style="font-size: 0.8rem; color: var(--text-muted);">સરળ સમજૂતી</span>
@@ -196,7 +196,7 @@
                     <input type="text" id="report-disease-input" placeholder="Enter disease name (or diagnose first)"
                         class="form-input" style="margin-bottom: 1.5rem;">
 
-                    <div class="lang-selection-report" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="lang-selection-report report-lang-grid" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
                         <button class="btn btn-outline lang-rpt-btn active" id="rpt-en"
                             onclick="selectReportLang('English')">
                             <span>🇬🇧</span> English
@@ -209,7 +209,7 @@
                         </button>
                     </div>
 
-                    <button class="btn btn-primary" onclick="generateReport()">
+                    <button id="generate-report-btn" class="btn btn-primary" onclick="generateReport()">
                         <i class="fa-solid fa-file-pdf"></i> <span data-i18n="btn-download-report">Download
                             Report</span>
                     </button>
@@ -231,7 +231,7 @@
                     <div id="image-preview-area" class="hidden">
                         <img id="image-preview" src="" alt="Preview">
                     </div>
-                    <button class="btn btn-primary" onclick="analyzeImage()">Analyze Image</button>
+                    <button id="analyze-image-btn" class="btn btn-primary" onclick="analyzeImage()">Analyze Image</button>
                     <div id="image-result" class="result-box hidden"></div>
                 </div>
             </section>

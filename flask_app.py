@@ -1,4 +1,5 @@
 import os
+import requests as http_requests  # renamed to avoid clash with flask.request
 import secrets
 import pandas as pd
 import numpy as np
@@ -22,6 +23,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import certifi
 from datetime import timedelta
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 
 # Import local modules
 from medical_data import get_medical_info
@@ -51,7 +56,9 @@ app.config['SESSION_PERMANENT'] = False  # This makes session expire on browser 
 # MongoDB Config with Fallback
 try:
     # MongoDB Atlas Connection String
-    MONGO_URI = "mongodb+srv://bsoni3416_db_user:WDF6ojQxs7wQXTfy@healthcaredatabase.fjjaxjr.mongodb.net/?appName=HealthcareDataBase"
+    MONGO_URI = os.getenv("MONGO_URI")
+    if not MONGO_URI:
+        raise ValueError("MONGO_URI is not set")
     mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000, tlsCAFile=certifi.where())
     db = mongo_client["healthcare_db"]
     # Check connection
@@ -71,21 +78,355 @@ except Exception as e:
     predictions_col = None
 
 # --- AI CONFIG ---
-import google.generativeai as genai
+AI_PROVIDER = os.getenv("AI_PROVIDER", os.getenv("LLM_PROVIDER", "gemini")).strip().lower()
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
 
-# --- AI CONFIG ---
-GEMINI_API_KEY = ""
-genai.configure(api_key=GEMINI_API_KEY)
-chat_model = genai.GenerativeModel('gemini-1.5-flash')
-print("AI Model Initialized: Gemini 1.5 Flash")
+AI_MODEL_NAME = os.getenv("AI_MODEL", "").strip()
+
+# --- OLLAMA CONFIG ---
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")
+
+
+def _offline_text_response(prompt):
+    prompt_lower = prompt.lower()
+
+    if "provide a comprehensive, detailed medical explanation" in prompt_lower:
+        disease = prompt.split("for '")[-1].split("'")[0] if "for '" in prompt else "the condition"
+        return f"""⚠️ [OFFLINE MODE]
+
+**Disease:** {disease}
+
+**1. OVERVIEW:**
+{disease} is a medical condition that can require attention and follow-up depending on severity.
+
+**2. CAUSES:**
+• Infection or inflammation
+• Lifestyle-related factors
+• Genetic predisposition
+• Other underlying health issues
+
+**3. SYMPTOMS:**
+• Pain or discomfort
+• Fatigue or weakness
+• Fever or inflammation
+• Condition-specific symptoms
+
+**4. DIAGNOSIS:**
+A doctor usually confirms this through symptoms, examination, and tests if needed.
+
+**5. TREATMENT:**
+• Rest and hydration
+• Doctor-prescribed medicines
+• Monitoring symptoms
+• Follow-up if symptoms worsen
+
+**6. PREVENTION:**
+• Maintain hygiene
+• Eat a balanced diet
+• Stay hydrated
+• Follow medical advice early
+
+**7. WHEN TO SEE A DOCTOR:**
+• Symptoms get worse
+• High fever persists
+• Severe pain starts
+• New worrying signs appear
+
+**8. LIFESTYLE RECOMMENDATIONS:**
+• Rest adequately
+• Avoid stress where possible
+• Keep a simple diet
+• Seek help if symptoms do not improve
+""", None
+
+    if "write a professional medical screening report" in prompt_lower:
+        disease = prompt.split("for '")[-1].split("'")[0] if "for '" in prompt else "the condition"
+        return f"""MEDICAL SCREENING REPORT: {disease}
+
+FINDINGS:
+- Screening indicates symptoms consistent with {disease}.
+
+ADVICE:
+- Rest and monitor symptoms.
+- Follow medical guidance.
+- Consult a clinician if symptoms worsen.
+
+NOTE:
+- This is an offline generated report and not a substitute for clinical diagnosis.
+""", None
+
+    if "extract only the symptoms mentioned" in prompt_lower or "extracted symptoms" in prompt_lower:
+        return "[]", None
+
+    return "Offline mode: a local response could not be generated for this prompt.", None
+
+
+def _offline_image_response(prompt, image_bytes):
+    try:
+        from PIL import ImageStat
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        stat = ImageStat.Stat(image)
+        brightness = sum(stat.mean) / 3
+        width, height = image.size
+
+        return f"""⚠️ [OFFLINE MODE] Image Analysis (local heuristic)
+
+Reason: No external AI provider is available.
+
+Image details:
+- Size: {width} x {height}
+- Average brightness: {brightness:.1f}
+
+    Suggested interpretation:
+    - The upload looks like a document or scan.
+    - No clinical AI interpretation was performed offline.
+    - For true image understanding, use a local vision model or a cloud provider with image support.
+""", None
+    except Exception as e:
+        return None, str(e)
+
+def _load_ai_client():
+    provider = AI_PROVIDER
+
+    if provider == "offline":
+        return {
+            "provider": provider,
+            "model": AI_MODEL_NAME or "offline-local",
+            "client": None,
+        }
+
+    if provider == "ollama":
+        model_name = AI_MODEL_NAME or "llama3.2"
+        # Quick connectivity check
+        try:
+            http_requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Ollama is not reachable at {OLLAMA_BASE_URL}. "
+                "Make sure Ollama is running (ollama serve)."
+            ) from exc
+        return {
+            "provider": "ollama",
+            "model": model_name,
+            "client": None,  # we use requests directly
+        }
+
+    if provider == "openai":
+        try:
+            from openai import OpenAI
+        except Exception as exc:
+            raise RuntimeError("OpenAI provider selected but the openai package is not installed.") from exc
+        if not API_KEY:
+            raise RuntimeError("API_KEY is not set for OpenAI.")
+        model_name = AI_MODEL_NAME or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return {
+            "provider": provider,
+            "model": model_name,
+            "client": OpenAI(api_key=API_KEY),
+        }
+
+    if provider == "anthropic":
+        try:
+            import anthropic
+        except Exception as exc:
+            raise RuntimeError("Anthropic provider selected but the anthropic package is not installed.") from exc
+        if not API_KEY:
+            raise RuntimeError("API_KEY is not set for Anthropic.")
+        model_name = AI_MODEL_NAME or os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+        return {
+            "provider": provider,
+            "model": model_name,
+            "client": anthropic.Anthropic(api_key=API_KEY),
+        }
+
+    try:
+        import google.generativeai as genai
+        from google.api_core.exceptions import ResourceExhausted, PermissionDenied, NotFound
+    except Exception as exc:
+        raise RuntimeError("Gemini provider selected but google-generativeai is not available.") from exc
+
+    if not API_KEY:
+        raise RuntimeError("API_KEY is not set for Gemini.")
+    genai.configure(api_key=API_KEY)
+    model_name = AI_MODEL_NAME or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    return {
+        "provider": "gemini",
+        "model": model_name,
+        "client": genai.GenerativeModel(model_name),
+        "errors": {
+            "ResourceExhausted": ResourceExhausted,
+            "PermissionDenied": PermissionDenied,
+            "NotFound": NotFound,
+        },
+    }
+
+
+AI_CLIENT = None
+AI_MODEL_NAME_RESOLVED = None
+try:
+    AI_CLIENT = _load_ai_client()
+    AI_MODEL_NAME_RESOLVED = AI_CLIENT["model"]
+    print(f"AI Provider Initialized: {AI_CLIENT['provider']} ({AI_MODEL_NAME_RESOLVED})")
+except Exception as e:
+    AI_CLIENT = None
+    print(f"AI provider unavailable: {e}")
+
+
+def _ai_error_message(error_text):
+    text = str(error_text).lower()
+    if "quota" in text or "billing" in text:
+        return "AI quota exceeded or billing is not enabled for this project."
+    if "reported as leaked" in text:
+        return "The API key was reported as leaked. Replace it with a new key."
+    if "api key" in text and ("invalid" in text or "not valid" in text or "permission" in text):
+        return "The API key is invalid or lacks permission. Check API_KEY in .env."
+    if "not found" in text or "unsupported" in text:
+        return f"The selected model '{AI_MODEL_NAME_RESOLVED}' is not available for this provider."
+    return str(error_text)
+
+
+def call_ai_text(prompt, **kwargs):
+    if not AI_CLIENT:
+        return None, "AI provider is not available. Check API_KEY and AI_PROVIDER in .env."
+
+    provider = AI_CLIENT["provider"]
+    try:
+        if provider == "offline":
+            return _offline_text_response(prompt)
+
+        if provider == "ollama":
+            resp = http_requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": AI_CLIENT["model"], "prompt": prompt, "stream": False},
+                timeout=120,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response", ""), None
+
+        if provider == "openai":
+            client = AI_CLIENT["client"]
+            response = client.responses.create(
+                model=AI_CLIENT["model"],
+                input=prompt,
+                **kwargs,
+            )
+            return response.output_text, None
+
+        if provider == "anthropic":
+            client = AI_CLIENT["client"]
+            response = client.messages.create(
+                model=AI_CLIENT["model"],
+                max_tokens=kwargs.pop("max_tokens", 1024),
+                messages=[{"role": "user", "content": prompt}],
+                **kwargs,
+            )
+            text = "".join(part.text for part in response.content if getattr(part, "type", None) == "text")
+            return text, None
+
+        response = AI_CLIENT["client"].generate_content(prompt, **kwargs)
+        return response.text, None
+
+    except Exception as e:
+        return None, _ai_error_message(e)
+
+
+def call_ai_image(prompt, image_bytes, mime_type="image/png"):
+    if not AI_CLIENT:
+        return None, "AI provider is not available. Check API_KEY and AI_PROVIDER in .env."
+
+    provider = AI_CLIENT["provider"]
+    try:
+        if provider == "offline":
+            return _offline_image_response(prompt, image_bytes)
+
+        if provider == "ollama":
+            # Resize image to avoid Ollama memory issues with large uploads
+            try:
+                img = Image.open(BytesIO(image_bytes)).convert("RGB")
+                max_dim = 1024
+                if max(img.size) > max_dim:
+                    img.thumbnail((max_dim, max_dim))
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                image_bytes = buf.getvalue()
+            except Exception:
+                pass  # send original bytes if resize fails
+
+            encoded = base64.b64encode(image_bytes).decode("utf-8")
+            resp = http_requests.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json={
+                    "model": OLLAMA_VISION_MODEL,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt,
+                            "images": [encoded],
+                        }
+                    ],
+                    "stream": False,
+                },
+                timeout=300,
+            )
+            if resp.status_code != 200:
+                err_detail = resp.text[:300] if resp.text else resp.reason
+                return None, f"Ollama vision error ({resp.status_code}): {err_detail}"
+            msg = resp.json().get("message", {})
+            return msg.get("content", ""), None
+
+        if provider == "openai":
+            encoded = base64.b64encode(image_bytes).decode("utf-8")
+            data_url = f"data:{mime_type};base64,{encoded}"
+            client = AI_CLIENT["client"]
+            response = client.responses.create(
+                model=AI_CLIENT["model"],
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": data_url},
+                        ],
+                    }
+                ],
+            )
+            return response.output_text, None
+
+        if provider == "anthropic":
+            encoded = base64.b64encode(image_bytes).decode("utf-8")
+            client = AI_CLIENT["client"]
+            response = client.messages.create(
+                model=AI_CLIENT["model"],
+                max_tokens=1024,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": encoded}},
+                        ],
+                    }
+                ],
+            )
+            text = "".join(part.text for part in response.content if getattr(part, "type", None) == "text")
+            return text, None
+
+        image = Image.open(BytesIO(image_bytes))
+        response = AI_CLIENT["client"].generate_content([prompt, image])
+        return response.text, None
+
+    except Exception as e:
+        return None, _ai_error_message(e)
 
 # --- PDF CONFIG ---
 USING_UNICODE_FONT = False # Set to True if Nirmala or other Indic font is installed
 
 # --- LOAD MODELS ---
 try:
-    # Use mmap_mode='r' to save memory on Windows
-    model = joblib.load("disease_model.pkl", mmap_mode='r')
+    model = joblib.load("disease_model.pkl")
     le = joblib.load("label_encoder.pkl")
     df_data = pd.read_csv("data/Diseases_and_Symptoms_data.csv")
     symptoms_list = [s.strip() for s in df_data.drop("diseases", axis=1).columns.tolist()]
@@ -255,20 +596,42 @@ def get_detailed_info(disease):
     
     return info
 
+def _language_register_instruction(language):
+    """Returns a tone/register instruction for the given language."""
+    if language == "Gujarati":
+        return (
+            "Write in everyday spoken Gujarati as used in Saurashtra/Kathiyawad. "
+            "Avoid formal literary or heavily Sanskrit-influenced Gujarati. "
+            "Use a conversational tone, like a doctor talking to a patient."
+        )
+    if language == "Hindi":
+        return (
+            "Write in simple everyday spoken Hindi (Hindustani). "
+            "Avoid shudh or heavily Sanskritized formal Hindi. "
+            "Use a conversational tone, like a doctor talking to a patient."
+        )
+    return f"Use {language} throughout."
+
+
 def translate_info(info, language):
     """Uses AI to translate medical info to target language."""
     if language.lower() == 'english' or language.startswith('en'):
         return info
     
+    register = _language_register_instruction(language)
     try:
         prompt = (
             f"Translate the following medical information into simple {language}. "
+            f"{register} "
             "Maintain the JSON structure. Translate the values, not the keys. "
             f"Target Language: {language}\n"
             f"Data: {json.dumps(info)}"
         )
-        response = chat_model.generate_content(prompt)
-        text = response.text.strip()
+        text, ai_error = call_ai_text(prompt)
+        if ai_error:
+            print(f"Translation Error: {ai_error}")
+            return info
+        text = text.strip()
         if "```" in text:
             text = text.replace("```json", "").replace("```", "")
         return json.loads(text)
@@ -318,11 +681,13 @@ def predict():
     if not model:
         return jsonify({"status": "error", "message": "Model not loaded"})
 
-    # Prepare input vector
-    input_vector = [1 if s in current_symptoms else 0 for s in symptoms_list]
+    # Prepare input vector with feature names so it matches the trained model
+    input_vector = pd.DataFrame([
+        [1 if s in current_symptoms else 0 for s in symptoms_list]
+    ], columns=symptoms_list)
     
     # Predict Probabilities
-    probs = model.predict_proba([input_vector])[0]
+    probs = model.predict_proba(input_vector)[0]
     
     # Get Top Candidates
     top_indices = np.argsort(probs)[-3:][::-1]
@@ -422,29 +787,27 @@ def index():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    # Registration works even if MongoDB is in fallback (for demo purposes, but prioritized Atlas)
     if request.method == "POST":
         username = request.form.get("username")
         email = request.form.get("email")
         password = request.form.get("password")
         role = request.form.get("role", "patient")
         
-        if USING_MONGODB:
-            if users_col.find_one({"username": username}):
-                return render_template("register.html", error="Username already exists")
-                
-            hashed_pw = generate_password_hash(password)
-            users_col.insert_one({
-                "username": username,
-                "email": email,
-                "password": hashed_pw,
-                "role": role,
-                "created_at": datetime.datetime.now()
-            })
-        else:
-            # Simple simulation for fallback mode
-            print(f"Demo Registration: {username} ({role})")
-            
+        if not USING_MONGODB:
+            return render_template("register.html", error="Database connection error. Please contact administrator.")
+
+        if users_col.find_one({"username": username}):
+            return render_template("register.html", error="Username already exists")
+
+        hashed_pw = generate_password_hash(password)
+        users_col.insert_one({
+            "username": username,
+            "email": email,
+            "password": hashed_pw,
+            "role": role,
+            "created_at": datetime.datetime.now()
+        })
+
         flash(f"Account for {username} created! Please login.")
         return redirect(url_for("index"))
     return render_template("register.html")
@@ -565,6 +928,8 @@ def extract_symptoms():
         symptoms_str = ", ".join(symptoms_list)
         
         system_prompt = f"""You are a medical symptom detector. The patient may speak in English, Hindi, or Gujarati.
+For Hindi, understand everyday spoken Hindi (Hindustani), not just formal/Sanskritized terms.
+For Gujarati, understand everyday spoken Gujarati as used in Saurashtra/Kathiyawad.
         
 Your task:
 1. Understand the patient's input text
@@ -583,8 +948,12 @@ IMPORTANT:
         
         full_prompt = f"{system_prompt}\n\nPatient Input: {text}\n\nExtracted Symptoms (JSON array):"
         
-        response = chat_model.generate_content(full_prompt)
-        content = response.text.strip()
+        content, ai_error = call_ai_text(full_prompt)
+        if ai_error:
+            print(f"[AI ERROR] {ai_error}")
+            content = "[]"
+        else:
+            content = content.strip()
         print(f"[AI RAW RESPONSE] {content}")
         
         # Clean up the response
@@ -627,11 +996,13 @@ def explain_disease():
     
     if not disease:
         return jsonify({"error": "No disease specified"})
-        
+
     try:
-        # Gemini Call - Enhanced prompt for detailed step-by-step explanation
+        # Provider-agnostic AI call for detailed step-by-step explanation
+        register = _language_register_instruction(language)
         prompt = (
             f"Provide a comprehensive, detailed medical explanation for '{disease}' in {language}. "
+            f"{register} "
             "Structure your response as follows:\n\n"
             "1. OVERVIEW: What is this condition? (2-3 sentences)\n"
             "2. CAUSES: What causes this disease? List main causes\n"
@@ -641,15 +1012,16 @@ def explain_disease():
             "6. PREVENTION: How to prevent it?\n"
             "7. WHEN TO SEE A DOCTOR: Red flags that require immediate medical attention\n"
             "8. LIFESTYLE RECOMMENDATIONS: Diet, exercise, and daily care tips\n\n"
-            f"Make it VERY detailed and informative. Use {language} throughout. "
+            "Make it VERY detailed and informative. "
             "Aim for approximately 400-500 words in total."
         )
-        response = chat_model.generate_content(prompt)
-        explanation = response.text
+        explanation, ai_error = call_ai_text(prompt)
+        if ai_error:
+            raise RuntimeError(ai_error)
         return jsonify({"explanation": explanation})
-        
+
     except Exception as e:
-        print(f"Gemini Error (Explain): {e}")
+        print(f"AI Error (Explain): {e}")
         # Localized Offline Fallback Response - also detailed
         if language == "Gujarati":
             mock_msg = f"""⚠️ [વિસ્તૃત સમજૂતી - ઓફલાઇન મોડ]
@@ -814,8 +1186,9 @@ def generate_report():
         )
         
         try:
-            response = chat_model.generate_content(prompt)
-            report_text = response.text
+            report_text, ai_error = call_ai_text(prompt)
+            if ai_error:
+                raise RuntimeError(ai_error)
         except Exception as ai_err:
             print(f"AI Report Error: {ai_err}")
             # Multilingual Fallback
@@ -954,18 +1327,19 @@ def analyze_image():
         return jsonify({"error": "No image selected"})
         
     try:
-        image = Image.open(file)
-        # Gemini handles PIL images directly
-        
         prompt = "Analyze this medical image or report and suggest possible condition and advice."
-        response = chat_model.generate_content([prompt, image])
-        result = response.text
+        image_bytes = file.read()
+        result, ai_error = call_ai_image(prompt, image_bytes, mime_type=file.mimetype or "image/png")
+        if ai_error:
+            raise RuntimeError(ai_error)
         return jsonify({"result": result})
         
     except Exception as e:
-        print(f"OpenAI Error (Image): {e}")
+        print(f"AI Error (Image): {e}")
         # Offline Fallback Response
-        mock_result = """⚠️ [OFFLINE MODE] AI Analysis Unavailable (Quota Exceeded).
+        mock_result = f"""⚠️ [OFFLINE MODE] AI Analysis Unavailable.
+
+Reason: {e}
 
         **Simulated Analysis Report:**
         

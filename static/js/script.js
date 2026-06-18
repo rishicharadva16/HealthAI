@@ -515,46 +515,87 @@ function renderResult(result) {
 
 // --- OTHER TABS ---
 
+function setLoadingState(buttonId, isLoading, loadingLabel) {
+    const button = document.getElementById(buttonId);
+    if (!button) return null;
+
+    if (!button.dataset.originalHtml) {
+        button.dataset.originalHtml = button.innerHTML;
+    }
+
+    button.disabled = isLoading;
+    button.classList.toggle('is-loading', isLoading);
+
+    if (isLoading) {
+        button.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${loadingLabel}`;
+    } else {
+        button.innerHTML = button.dataset.originalHtml;
+    }
+
+    return button;
+}
+
+function setGroupDisabled(buttonIds, disabled) {
+    buttonIds.forEach(buttonId => {
+        const button = document.getElementById(buttonId);
+        if (button) {
+            button.disabled = disabled;
+            button.classList.toggle('is-disabled', disabled);
+        }
+    });
+}
+
 // Explain
-async function explainDisease(lang) {
+async function explainDisease(lang, activeButtonId) {
     const disease = document.getElementById('explain-disease-input').value;
     const resContainer = document.getElementById('explain-result-container');
     const resBox = document.getElementById('explain-result');
+    const buttonIds = ['explain-en-btn', 'explain-gu-btn'];
 
     if (!disease) return alert("Enter disease name");
 
     resContainer.classList.remove('hidden');
-    resBox.textContent = "Generating explanation...";
+    resContainer.setAttribute('aria-busy', 'true');
+    resBox.innerHTML = '<div class="loading-state"><i class="fa-solid fa-spinner fa-spin"></i> Generating explanation...</div>';
+    setGroupDisabled(buttonIds, true);
+    setLoadingState(activeButtonId, true, 'Generating...');
 
-    const res = await apiFetch('/api/explain_disease', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disease, language: lang })
-    });
-    if (!res) return;
-    const data = await res.json();
+    try {
+        const res = await apiFetch('/api/explain_disease', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ disease, language: lang })
+        });
+        if (!res) return;
+        const data = await res.json();
 
+        // Format the text for better display
+        if (data.explanation) {
+            let text = data.explanation;
 
-    // Format the text for better display
-    if (data.explanation) {
-        let text = data.explanation;
+            // 1. Convert **Bold** to <strong>Bold</strong>
+            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-        // 1. Convert **Bold** to <strong>Bold</strong>
-        text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            // 2. Handle numbered lists better (ensure they start on new lines)
+            // Look for patterns like "1. TITLE:" and ensure a break before them
+            text = text.replace(/(\d+\.\s+[A-Z\s]+:)/g, '<br><br>$1');
 
-        // 2. Handle numbered lists better (ensure they start on new lines)
-        // Look for patterns like "1. TITLE:" and ensure a break before them
-        text = text.replace(/(\d+\.\s+[A-Z\s]+:)/g, '<br><br>$1');
+            // 3. Convert remaining newlines to <br>
+            text = text.replace(/\n/g, '<br>');
 
-        // 3. Convert remaining newlines to <br>
-        text = text.replace(/\n/g, '<br>');
+            // 4. Clean up initial double breaks if any
+            if (text.startsWith('<br>')) text = text.substring(4);
 
-        // 4. Clean up initial double breaks if any
-        if (text.startsWith('<br>')) text = text.substring(4);
-
-        resBox.innerHTML = text;
-    } else {
-        resBox.textContent = data.error;
+            resBox.innerHTML = text;
+        } else {
+            resBox.textContent = data.error;
+        }
+    } catch (error) {
+        resBox.innerHTML = `<div class="text-error">Error: ${error.message}</div>`;
+    } finally {
+        resContainer.setAttribute('aria-busy', 'false');
+        setGroupDisabled(buttonIds, false);
+        buttonIds.forEach(buttonId => setLoadingState(buttonId, false));
     }
 }
 
@@ -569,12 +610,11 @@ function selectReportLang(lang) {
 
 async function generateReport() {
     const disease = document.getElementById('report-disease-input').value;
+    const btn = document.getElementById('generate-report-btn');
+
     if (!disease) return alert("Enter disease name");
 
-    const btn = document.querySelector('[onclick="generateReport()"]');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
-    btn.disabled = true;
+    setLoadingState('generate-report-btn', true, 'Generating...');
 
     try {
         const res = await fetch('/api/generate_report', {
@@ -601,8 +641,7 @@ async function generateReport() {
     } catch (err) {
         alert("Error generating report: " + err.message);
     } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
+        setLoadingState('generate-report-btn', false);
     }
 }
 
@@ -624,22 +663,30 @@ fileInput.onchange = (e) => {
 
 async function analyzeImage() {
     const file = fileInput.files[0];
+    const buttonId = 'analyze-image-btn';
     if (!file) return alert("Upload an image first");
 
     const resBox = document.getElementById('image-result');
     resBox.classList.remove('hidden');
-    resBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...';
+    resBox.innerHTML = '<div class="loading-state"><i class="fa-solid fa-spinner fa-spin"></i> Analyzing image...</div>';
+    setLoadingState(buttonId, true, 'Analyzing...');
 
-    const formData = new FormData();
-    formData.append('image', file);
+    try {
+        const formData = new FormData();
+        formData.append('image', file);
 
-    const res = await apiFetch('/api/analyze_image', {
-        method: 'POST',
-        body: formData
-    });
-    if (!res) return;
-    const data = await res.json();
-    resBox.textContent = data.result || data.error;
+        const res = await apiFetch('/api/analyze_image', {
+            method: 'POST',
+            body: formData
+        });
+        if (!res) return;
+        const data = await res.json();
+        resBox.textContent = data.result || data.error;
+    } catch (error) {
+        resBox.innerHTML = `<div class="text-error">Error: ${error.message}</div>`;
+    } finally {
+        setLoadingState(buttonId, false);
+    }
 }
 
 // Dictionary

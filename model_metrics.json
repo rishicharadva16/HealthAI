@@ -1,0 +1,5 @@
+{
+  "best_model":"multinomial_nb_pipeline",
+  "accuracy":0.8946820689,
+  "f1_score":0.8944074274
+}
