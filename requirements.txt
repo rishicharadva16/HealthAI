@@ -15,3 +15,4 @@ requests
 geopy
 openai
 anthropic
+groq

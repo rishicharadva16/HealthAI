@@ -68,10 +68,12 @@ try:
     history_col = db["medical_history"]
     predictions_col = db["predictions"] # New collection for patient history table
     USING_MONGODB = True
+    MONGO_ERROR = None
     print("Connected to MongoDB")
 except Exception as e:
     print(f"MongoDB not detected (Using CSV Fallback): {e}")
     USING_MONGODB = False
+    MONGO_ERROR = str(e)
     users_col = None
     patients_col = None
     history_col = None
@@ -214,6 +216,20 @@ def _load_ai_client():
             "client": None,  # we use requests directly
         }
 
+    if provider == "groq":
+        try:
+            from groq import Groq
+        except Exception as exc:
+            raise RuntimeError("Groq provider selected but the groq package is not installed.") from exc
+        if not API_KEY:
+            raise RuntimeError("API_KEY is not set for Groq.")
+        model_name = AI_MODEL_NAME or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        return {
+            "provider": provider,
+            "model": model_name,
+            "client": Groq(api_key=API_KEY),
+        }
+
     if provider == "openai":
         try:
             from openai import OpenAI
@@ -306,6 +322,15 @@ def call_ai_text(prompt, **kwargs):
             resp.raise_for_status()
             return resp.json().get("response", ""), None
 
+        if provider == "groq":
+            client = AI_CLIENT["client"]
+            chat_completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=AI_CLIENT["model"],
+                **kwargs,
+            )
+            return chat_completion.choices[0].message.content, None
+
         if provider == "openai":
             client = AI_CLIENT["client"]
             response = client.responses.create(
@@ -376,6 +401,24 @@ def call_ai_image(prompt, image_bytes, mime_type="image/png"):
                 return None, f"Ollama vision error ({resp.status_code}): {err_detail}"
             msg = resp.json().get("message", {})
             return msg.get("content", ""), None
+
+        if provider == "groq":
+            encoded = base64.b64encode(image_bytes).decode("utf-8")
+            data_url = f"data:{mime_type};base64,{encoded}"
+            client = AI_CLIENT["client"]
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": data_url}},
+                        ],
+                    }
+                ],
+                model="llama-3.2-11b-vision-preview",
+            )
+            return chat_completion.choices[0].message.content, None
 
         if provider == "openai":
             encoded = base64.b64encode(image_bytes).decode("utf-8")
@@ -794,7 +837,7 @@ def register():
         role = request.form.get("role", "patient")
         
         if not USING_MONGODB:
-            return render_template("register.html", error="Database connection error. Please contact administrator.")
+            return render_template("register.html", error=f"Database connection error. Details: {MONGO_ERROR}")
 
         if users_col.find_one({"username": username}):
             return render_template("register.html", error="Username already exists")

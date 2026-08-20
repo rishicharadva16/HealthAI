@@ -1,6 +1,7 @@
 __pycache__/
 *.pkl
 !label_encoder.pkl
+!disease_model.pkl
 *.pyc
 env/
 venv/
