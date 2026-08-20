@@ -407,7 +407,7 @@ def call_ai_image(prompt, image_bytes, mime_type="image/png"):
                 return None, "Groq vision is decommissioned. Please set GEMINI_API_KEY in .env for image analysis fallback."
             
             encoded = base64.b64encode(image_bytes).decode("utf-8")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={gemini_key}"
             payload = {
                 "contents": [{
                     "parts": [

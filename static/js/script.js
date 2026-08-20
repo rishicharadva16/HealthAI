@@ -681,7 +681,23 @@ async function analyzeImage() {
         });
         if (!res) return;
         const data = await res.json();
-        resBox.textContent = data.result || data.error;
+        
+        if (data.result) {
+            let text = data.result;
+            // Headers
+            text = text.replace(/^### (.*$)/gim, '<h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--primary-dark);">$1</h3>');
+            text = text.replace(/^## (.*$)/gim, '<h2 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--primary-dark);">$1</h2>');
+            // Bold
+            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            // Bullets
+            text = text.replace(/^\* (.*$)/gim, '&bull; $1');
+            text = text.replace(/^- (.*$)/gim, '&bull; $1');
+            // Newlines
+            text = text.replace(/\n/g, '<br>');
+            resBox.innerHTML = text;
+        } else {
+            resBox.textContent = data.error;
+        }
     } catch (error) {
         resBox.innerHTML = `<div class="text-error">Error: ${error.message}</div>`;
     } finally {
