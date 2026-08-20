@@ -1,127 +1,85 @@
-# AI Healthcare Project
+# AI Healthcare Screening Project
 
-An AI-assisted healthcare screening web app built with Flask, MongoDB, and pluggable AI providers. It supports multilingual symptom checking, disease explanations, PDF report generation, doctor lookup, and image-based analysis.
+An AI-assisted healthcare screening web app built with Flask, MongoDB, and lightning-fast cloud AI. It supports multilingual symptom checking, disease explanations, PDF report generation, doctor lookup, and multimodal image-based medical analysis.
+
+## ⚠️ Disclaimer
+> **This application is a prototype and proof-of-concept.** The AI-generated diagnoses, image analyses, and medical reports are **not 100% accurate** and should **never** be used for self-diagnosis or real medical treatment. This project is designed as a foundational prototype that could eventually be built out as an assistant tool for qualified doctors and medical professionals in the future.
 
 ## Problem Statement
-Healthcare users often need a fast first-pass screening tool that can collect symptoms, explain possible conditions, and present the result in a simple multilingual format. This project addresses that need with an AI-powered symptom checker backed by structured medical reference data and a MongoDB patient workflow.
+Healthcare users often need a fast first-pass screening tool that can collect symptoms, explain possible conditions, and present the result in a simple multilingual format. This project addresses that need with an AI-powered symptom checker backed by structured medical reference data, cloud AI text/vision inference, and a MongoDB patient workflow.
 
 ## Features
-- Multilingual symptom selection and AI-backed symptom extraction.
-- Disease prediction with confidence scoring and follow-up questioning.
-- Provider-backed disease explanations with cloud and offline fallback support.
-- PDF medical report generation.
-- Image analysis for uploaded medical visuals, with offline fallback summaries.
-- Patient history stored in MongoDB.
-- Doctor recommendations based on disease and location.
-- CSV fallback mode when MongoDB is unavailable.
+- **Multilingual Symptom Checker:** Select symptoms and extract medical terms seamlessly.
+- **Disease Prediction:** Fast ML predictions with confidence scoring.
+- **Lightning-Fast AI Explanations:** Powered by Groq for ultra-low latency text generation.
+- **Medical Image Analysis:** Powered by Google Gemini Vision API for high-accuracy visual screening.
+- **PDF Medical Reports:** Automatically generate downloadable patient reports.
+- **Patient History:** Securely stored in MongoDB.
+- **Doctor Recommendations:** Based on disease and location.
+- **Vercel Ready:** Fully configured for serverless deployment on Vercel.
 
 ## Tech Stack
-- Backend: Flask, PyMongo, python-dotenv, Werkzeug
-- AI: Ollama (local), OpenAI, Anthropic, Google Gemini, scikit-learn, joblib
-- Data: pandas, numpy, CSV/JSON datasets
-- PDF: reportlab
-- Translation: deep-translator
-- Frontend: HTML, CSS, JavaScript
+- **Backend:** Flask, PyMongo, Werkzeug
+- **AI (Text):** Groq API (`llama-3.1-8b-instant`)
+- **AI (Vision):** Google Gemini API (`gemini-1.5-flash`)
+- **Machine Learning:** scikit-learn, joblib, pandas, numpy
+- **PDF Generation:** reportlab
+- **Translation:** deep-translator
+- **Frontend:** HTML, CSS, Vanilla JavaScript
 
-## Model Evaluation
-The current saved model was trained with an 80/20 train/test split and saved with joblib compression.
+## Setup & Local Development
 
-- Model: Multinomial Naive Bayes pipeline
-- Test accuracy: 0.8947
-- Weighted F1-score: 0.8944
-- Saved model size: 22,452 bytes
-- Confusion matrix: saved to `confusion_matrix.csv`
+This project uses a hybrid AI architecture to maximize speed and minimize costs, utilizing Groq for text and Gemini for image analysis.
 
-## Setup
+### 1. Prerequisites
+- Python 3.11+
+- A MongoDB Cluster (MongoDB Atlas)
+- A [Groq API Key](https://console.groq.com/keys) (Free)
+- A [Google Gemini API Key](https://aistudio.google.com/) (Free)
 
-### Option A: Local AI with Ollama (recommended – no billing, no API key)
+### 2. Environment Setup
+Create a virtual environment and install the minimal dependencies:
+```bash
+python -m venv venv
+# Windows
+.\venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
 
-1. **Install Ollama** from [ollama.com](https://ollama.com).
+pip install -r requirements.txt
+```
 
-2. **Pull the required models**:
-   ```bash
-   ollama pull llama3.2
-   ollama pull llava        # for image analysis (optional)
-   ```
-
-3. **Set your `.env`**:
-   ```env
-   AI_PROVIDER=ollama
-   AI_MODEL=llama3.2
-   MONGO_URI=your_mongodb_connection_string
-   ```
-
-   Optional overrides (these have sensible defaults):
-   ```env
-   OLLAMA_BASE_URL=http://localhost:11434
-   OLLAMA_VISION_MODEL=llava
-   ```
-
-4. **Install Python dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-5. **Start Ollama** (if not already running):
-   ```bash
-   ollama serve
-   ```
-
-6. **Run the app**:
-   ```bash
-   python flask_app.py
-   ```
-
-### Option B: Cloud AI Provider
-
-Set `.env` with one of the supported cloud providers:
-
+### 3. Configuration
+Rename `.env.example` to `.env` and fill in your keys:
 ```env
 MONGO_URI=your_mongodb_connection_string
-API_KEY=your_api_key_here
-AI_PROVIDER=openai        # or: gemini, anthropic
-AI_MODEL=gpt-4o-mini      # or: gemini-2.0-flash, claude-3-5-sonnet-latest
+AI_PROVIDER=groq
+AI_MODEL=llama-3.1-8b-instant
+API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
-Supported `AI_PROVIDER` values:
-- `ollama` – local Ollama instance (no API key needed)
-- `openai`
-- `anthropic`
-- `gemini`
-- `offline` – no AI, uses hardcoded fallback responses
-
-### Option C: Fully Offline (no AI at all)
-
-```env
-AI_PROVIDER=offline
-AI_MODEL=offline-local
-```
-
-### Model Artifacts
-
-Ensure the following files exist in the project root:
-- `disease_model.pkl`
-- `label_encoder.pkl`
-
-Re-train the model when the symptom dataset changes:
+### 4. Run Locally
 ```bash
-python train_model.py
+python app.py
 ```
+The app will start at `http://127.0.0.1:5000`.
 
-## Run
-```bash
-python flask_app.py
-```
-The app starts at `http://0.0.0.0:5000`.
+## Vercel Deployment
+This project is configured out-of-the-box for Vercel deployment. 
+1. Push your code to GitHub.
+2. Import the repository into Vercel.
+3. In the Vercel Dashboard, go to **Settings > Environment Variables** and add all the variables from your `.env` file.
+4. Deploy! Vercel will automatically install the packages in `requirements.txt` and launch the Flask app serverlessly.
 
-## Screenshots
+## Model Evaluation
+The current saved disease prediction model (`disease_model.pkl`) was trained with an 80/20 train/test split.
+- **Model:** Multinomial Naive Bayes pipeline
+- **Test accuracy:** 0.8947
+- **Weighted F1-score:** 0.8944
 
-> Screenshots are pending — they will be added once the UI is finalized.
->
-> Key screens: **Login → Dashboard → Symptom Checker → Results → Report PDF → Image Analysis**
+*(If the symptom dataset changes, run `python train_model.py` to regenerate the `.pkl` files).*
 
 ## Notes
-- `.env` is ignored by git and should stay local.
-- `app.py` was removed because it was an unused Streamlit prototype.
-- If MongoDB is unavailable, the app falls back to CSV-based behavior for the supported flows.
-- If Ollama is not running when `AI_PROVIDER=ollama`, the app prints a clear error at startup and falls back to offline mode.
+- `.env` is ignored by git and should stay local to protect your API keys.
+- **Legacy Support:** The application retains fallback logic for Ollama, OpenAI, and Anthropic in the `app.py` source code, but the Vercel deployment strictly uses Groq + Gemini for optimized performance.

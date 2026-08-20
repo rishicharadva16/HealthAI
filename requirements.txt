@@ -1,7 +1,6 @@
 flask
 pymongo
 reportlab
-google-generativeai
 certifi
 werkzeug
 python-dotenv
@@ -13,6 +12,4 @@ deep-translator
 Pillow
 requests
 geopy
-openai
-anthropic
 groq

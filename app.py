@@ -401,24 +401,32 @@ def call_ai_image(prompt, image_bytes, mime_type="image/png"):
                 return None, f"Ollama vision error ({resp.status_code}): {err_detail}"
             msg = resp.json().get("message", {})
             return msg.get("content", ""), None
-
         if provider == "groq":
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if not gemini_key:
+                return None, "Groq vision is decommissioned. Please set GEMINI_API_KEY in .env for image analysis fallback."
+            
             encoded = base64.b64encode(image_bytes).decode("utf-8")
-            data_url = f"data:{mime_type};base64,{encoded}"
-            client = AI_CLIENT["client"]
-            chat_completion = client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                        ],
-                    }
-                ],
-                model="llama-3.2-11b-vision-preview",
-            )
-            return chat_completion.choices[0].message.content, None
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {"inline_data": {"mime_type": mime_type, "data": encoded}}
+                    ]
+                }]
+            }
+            resp = http_requests.post(url, json=payload, timeout=60)
+            if resp.status_code != 200:
+                err_detail = resp.text[:300] if resp.text else resp.reason
+                return None, f"Gemini vision fallback error: {err_detail}"
+            
+            data = resp.json()
+            try:
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return text, None
+            except (KeyError, IndexError):
+                return None, "Failed to parse Gemini response."
 
         if provider == "openai":
             encoded = base64.b64encode(image_bytes).decode("utf-8")
@@ -1370,6 +1378,7 @@ def analyze_image():
         return jsonify({"error": "No image selected"})
         
     try:
+        print(f"DEBUG IN ROUTE: AI_CLIENT is {AI_CLIENT is not None}")
         prompt = "Analyze this medical image or report and suggest possible condition and advice."
         image_bytes = file.read()
         result, ai_error = call_ai_image(prompt, image_bytes, mime_type=file.mimetype or "image/png")
