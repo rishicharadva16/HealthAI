@@ -1162,6 +1162,8 @@ def explain_disease():
 *(चूंकि AI सेवा वर्तमान में सीमित है, यह एक पूर्व-निर्धारित संदेश है।)*"""
         else:
             mock_msg = f"""⚠️ [DETAILED EXPLANATION - OFFLINE MODE]
+            
+**Error Detail:** {str(e)}
 
 **Disease:** {disease}
 
